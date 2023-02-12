@@ -72,6 +72,10 @@ bufferevent_openssl_set_allow_dirty_shutdown(UNUSED struct bufferevent *bev,
 }
 #endif /* LIBEVENT_VERSION_NUMBER < 0x02010000 */
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#define ERR_GET_FUNC(x) 0
+#define ERR_func_error_string(x) ""
+#endif
 
 /*
  * Maximum size of data to buffer per connection direction before
@@ -1164,6 +1168,19 @@ pxy_ossl_servername_cb(SSL *ssl, UNUSED int *al, void *arg)
 }
 #endif /* !OPENSSL_NO_TLSEXT */
 
+#if (OPENSSL_VERSION_NUMBER >= 0x10101000L) && !defined(LIBRESSL_VERSION_NUMBER)
+#ifdef HAVE_TLSV13
+static void pxy_ssl_ctx_keylog_cb(const SSL *ssl, const char *line)
+{
+	log_dbg_printf("SSLKEYLOG:%s\n", line);
+	if (line != NULL) {
+		log_masterkey_print(line);
+		log_masterkey_print("\n");
+	}	
+}
+#endif
+#endif
+
 /*
  * Create new SSL context for outgoing connections to the original destination.
  * If hostname sni is provided, use it for Server Name Indication.
@@ -1205,6 +1222,12 @@ pxy_dstssl_create(pxy_conn_ctx_t *ctx)
 #endif /* HAVE_TLSV13 */
 #endif /* OPENSSL_VERSION_NUMBER >= 0x10100000L */
 
+#if (OPENSSL_VERSION_NUMBER >= 0x10101000L) && !defined(LIBRESSL_VERSION_NUMBER)
+#ifdef HAVE_TLSV13
+	if (ctx->opts->masterkeylog)
+		SSL_CTX_set_keylog_callback(sslctx, pxy_ssl_ctx_keylog_cb);
+#endif
+#endif
 	if (ctx->opts->verify_peer) {
 		SSL_CTX_set_verify(sslctx, SSL_VERIFY_PEER, NULL);
 		SSL_CTX_set_default_verify_paths(sslctx);
@@ -2134,6 +2157,7 @@ connected:
 			}
 
 			/* log master key */
+			/*
 			if (ctx->opts->masterkeylog) {
 				char *keystr;
 				keystr = ssl_ssl_masterkey_to_str(this->ssl);
@@ -2145,6 +2169,7 @@ connected:
 					return;
 				}
 			}
+			*/
 		}
 
 		if (OPTS_DEBUG(ctx->opts)) {
